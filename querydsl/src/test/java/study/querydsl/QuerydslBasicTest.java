@@ -1,9 +1,12 @@
 package study.querydsl;
 
+import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
 import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Predicate;
 import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
@@ -13,8 +16,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 import study.querydsl.dto.MemberDto;
+import study.querydsl.dto.QMemberDto;
 import study.querydsl.dto.UserDto;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
@@ -342,7 +347,7 @@ public class QuerydslBasicTest {
         assertThat(loaded).as("페치 조인 미적용").isTrue();
     }
 
-    /** 나이가 가장 많은 회원 조회 */
+    /** 나이가 가장 많은 회원 조회 with SuqQuery*/
     @Test
     public void subQuery() {
         queryFactory = new JPAQueryFactory(em);
@@ -360,7 +365,7 @@ public class QuerydslBasicTest {
     }
 
     
-    /** 나이가 평균 이상인 회원 ( goe >= ) */
+    /** 나이가 평균 이상인 회원 ( goe >= ) with SubQuery*/
     @Test
     public void subQueryGoe() {
         queryFactory = new JPAQueryFactory(em);
@@ -377,7 +382,7 @@ public class QuerydslBasicTest {
         assertThat(result).extracting("age").containsExactly(30, 40);
     }
 
-    /** 회원 이름과 평균나이를 조회 */
+    /** 회원 이름과 평균나이를 조회 with SubQuery */
     @Test
     public void selectSubQuery() {
         queryFactory = new JPAQueryFactory(em);
@@ -591,7 +596,8 @@ public class QuerydslBasicTest {
         List<UserDto> result = queryFactory
                 .select(Projections.fields(UserDto.class,
                         member.username.as("name"), // as사용하여 field 값과 일치하게 변환
-                        ExpressionUtils.as(JPAExpressions
+
+                        ExpressionUtils.as(JPAExpressions   //서브쿼리에 이름을 주고 싶을 때 ExpressionUtils로 지정
                                 .select(memberSub.age.max())
                                 .from(memberSub), "age")
                 ))
@@ -604,5 +610,184 @@ public class QuerydslBasicTest {
         }
     }
 
+    /** @QueryProjection 어노테이션을 이용한 Dto 처리 */
+    @Test
+    public void findDtoByQueryProjection() {
+        queryFactory = new JPAQueryFactory(em);
 
+        List<MemberDto> result = queryFactory
+                .select(new QMemberDto(member.username, member.age))    //깔끔하게 new 생성자로 처리
+                .from(member)
+                .fetch();
+        //장점 - 런타임 전에 오류를 잡아낼 수 있다.
+        //단점 - Dto를 따로 생성해야한다,
+        //    - Dto가 QueryProjection에 의존하고 있다는 점
+        
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    /** 동적쿼리로 검색조건 설정 */
+    @Test
+    public void dynamicQuery_BooleanBuilder() {
+        String usernameParam = null;
+        Integer ageParam = 10;
+
+        List<Member> result = searchMember1(usernameParam, ageParam);
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    /** 동적 쿼리 메소드 */
+    private List<Member> searchMember1(String usernameCond, Integer ageCond) {
+        queryFactory = new JPAQueryFactory(em);
+
+        //초기값 설정도 가능 ( usernameCond는 null이면 안됨 )
+        BooleanBuilder builder = new BooleanBuilder(member.username.eq(usernameCond));
+
+        // null이 아니면 builder조건에 값을 추가
+        if(usernameCond != null)
+            builder.and(member.username.eq(usernameCond));
+
+        if(ageCond != null)
+            builder.and(member.age.eq(ageCond));
+
+        return queryFactory
+                .selectFrom(member)
+                .where(builder)
+                .fetch();
+    }
+
+    /** BooleanBuilder 보다 깔끔하게 동적 쿼리 처리 */
+    @Test
+    public void dinamicQuery_WhereParam() {
+        String usernameParam = null;
+        Integer ageParam = 10;
+
+        List<Member> result = searchMember2(usernameParam, ageParam);
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    /** 동적 쿼리 메소드 2 */
+    private List<Member> searchMember2(String usernameCond, Integer ageCond) {
+        queryFactory = new JPAQueryFactory(em);
+
+        return queryFactory
+                .selectFrom(member)
+//              .where(allEq(usernameCond, ageCond))   밑 코드 한번에 처리
+                .where(usernameEq(usernameCond), ageEq(ageCond))  // where절에 null값이 존재할 경우 무시됨
+                .fetch();
+    }
+
+    private BooleanExpression ageEq(Integer ageCond) {
+        return ageCond == null ? null : member.age.eq(ageCond);
+    }
+
+    private BooleanExpression usernameEq(String usernameCond) {
+        return usernameCond == null ? null : member.username.eq(usernameCond);
+    }
+
+    /** 위 두개 메소드 합치기 */
+    private BooleanExpression allEq(String usernameCond, Integer ageCond) {
+        return usernameEq(usernameCond).and(ageEq(ageCond));
+    }
+
+    /** 수정, 삭제 배치 쿼리 ( bulk 연산 and 문제점) */
+    @Test
+    @Rollback(value = false)
+    public void bulkUpdate() {
+        queryFactory = new JPAQueryFactory(em);
+
+        /** bulk 연산은 영속성 컨텍스트를 무시하고 바로 update 쿼리문을 날려서 문제가 있다. */
+
+        /** before
+            member1 = 10 -> DB member1
+            member2 = 20 -> DB member2
+            member3 = 30 -> DB member3
+            member4 = 40 -> DB member4
+         */
+
+        long count = queryFactory
+                .update(member)
+                .set(member.username, "비회원")    // 이름을 비회원으로 변경시킨다
+                .where(member.age.lt(28))   // 28살 미만이면  age < 28  loe는 age <= 28
+                .execute();
+
+        //해결법
+        em.flush(); 
+        em.clear();
+
+        /** after
+            member1 = 10 -> DB 비회원
+            member2 = 20 -> DB 비회원
+            member3 = 30 -> DB member3
+            member4 = 40 -> DB member4
+         */
+
+        //이렇게 될경우 영속성 컨텍스트에 있는 값을 가져오기 때문에
+        // DB값과 일치하지 않는 결과가 나온다.
+        List<Member> result = queryFactory
+                .selectFrom(member)
+                .fetch();
+
+        for (Member member1 : result) {
+            System.out.println("member1 = " + member1);
+        }
+    }
+
+    /** bulk 숫자 연산 **/
+    @Test
+    public void bulkAdd() {
+        queryFactory = new JPAQueryFactory(em);
+
+        long count = queryFactory
+                .update(member)
+                .set(member.age, member.age.add(1)) // 곱하기 = multiply
+                .execute();
+    }
+
+    /** bulk연산 삭제 **/
+    @Test
+    public void bulkDelete() {
+        queryFactory = new JPAQueryFactory(em);
+
+        long count = queryFactory
+                .delete(member)
+                .where(member.age.gt(18))   // age > 18
+                .execute();
+    }
+
+    /** SQL Function을 이용하여 조회값 문자 변형 */
+    @Test
+    public void sqlFunction() {
+        queryFactory = new JPAQueryFactory(em);
+
+        List<String> result = queryFactory
+                .select(Expressions.stringTemplate(
+                        "function('replace', {0}, {1}, {2})",
+                        member.username, "member", "M"))
+                .from(member)
+                .fetch();
+        
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    @Test
+    public void sqlFunction2() {
+        queryFactory = new JPAQueryFactory(em);
+
+        List<String> result = queryFactory
+                .select(member.username)
+                .from(member)
+//                .where(member.username.eq(
+//                        Expressions.stringTemplate("function('lower', {0})", member.username)))
+                .where(member.username.eq(member.username.lower()))
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
 }
