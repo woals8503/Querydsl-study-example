@@ -2,6 +2,8 @@ package study.querydsl;
 
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
@@ -12,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import study.querydsl.dto.MemberDto;
+import study.querydsl.dto.UserDto;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
 import study.querydsl.entity.QTeam;
@@ -20,6 +24,7 @@ import study.querydsl.entity.Team;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 import javax.persistence.PersistenceUnit;
+import javax.persistence.TypedQuery;
 
 import java.util.List;
 
@@ -201,7 +206,7 @@ public class QuerydslBasicTest {
         assertThat(tuple.get(member.age.min())).isEqualTo(10);
     }
 
-    //팀 이름과 각 팀의 평균 연령
+    /** 팀 이름과 각 팀의 평균 연령 */
     @Test
     public void group() {
         queryFactory = new JPAQueryFactory(em);
@@ -222,7 +227,7 @@ public class QuerydslBasicTest {
         assertThat(teamB.get(member.age.avg())).isEqualTo(35);
     }
 
-    //팀A에 소속된 모든 회원을 찾아라
+    /** 팀A에 소속된 모든 회원을 찾아라 */
     @Test
     public void join() {
         queryFactory = new JPAQueryFactory(em);
@@ -276,8 +281,8 @@ public class QuerydslBasicTest {
         }
     }
 
-    //연관관계 없는 엔티티 외부 조인
-    //회원의 이름이 팀 이름과 같은 대상 외부 조인
+    /** 연관관계 없는 엔티티 외부 조인
+    회원의 이름이 팀 이름과 같은 대상 외부 조인 */
     @Test
     public void join_on_no_relation() {
         em.persist(new Member("teamA"));
@@ -302,7 +307,7 @@ public class QuerydslBasicTest {
     @PersistenceUnit
     EntityManagerFactory emf;
 
-    //페치조인 적용 x
+    /** 페치조인 적용 x */
     @Test
     public void fetchJoinNo() {
         em.flush();
@@ -319,7 +324,7 @@ public class QuerydslBasicTest {
         assertThat(loaded).as("페치 조인 미적용").isFalse();
     }
 
-    //페치조인 적용 o
+    /** 페치조인 적용 o */
     @Test
     public void fetchJoinUser() {
         em.flush();
@@ -337,7 +342,7 @@ public class QuerydslBasicTest {
         assertThat(loaded).as("페치 조인 미적용").isTrue();
     }
 
-    // 나이가 가장 많은 회원 조회
+    /** 나이가 가장 많은 회원 조회 */
     @Test
     public void subQuery() {
         queryFactory = new JPAQueryFactory(em);
@@ -355,7 +360,7 @@ public class QuerydslBasicTest {
     }
 
     
-    //나이가 평균 이상인 회원 ( goe >= )
+    /** 나이가 평균 이상인 회원 ( goe >= ) */
     @Test
     public void subQueryGoe() {
         queryFactory = new JPAQueryFactory(em);
@@ -372,7 +377,7 @@ public class QuerydslBasicTest {
         assertThat(result).extracting("age").containsExactly(30, 40);
     }
 
-    //회원 이름과 평균나이를 조회
+    /** 회원 이름과 평균나이를 조회 */
     @Test
     public void selectSubQuery() {
         queryFactory = new JPAQueryFactory(em);
@@ -399,7 +404,7 @@ public class QuerydslBasicTest {
          * **/
     }
 
-    //case 기본
+    /** case 기본 */
     @Test
     public void basicCase() {
         queryFactory = new JPAQueryFactory(em);
@@ -416,7 +421,7 @@ public class QuerydslBasicTest {
         }
     }
 
-    //case 심화
+    /** case 심화 */
     @Test
     public void complexCase() {
         queryFactory = new JPAQueryFactory(em);
@@ -433,7 +438,7 @@ public class QuerydslBasicTest {
         }
     }
 
-    //상수
+    /** 상수 */
     @Test
     public void constant() {
         queryFactory = new JPAQueryFactory(em);
@@ -446,7 +451,7 @@ public class QuerydslBasicTest {
         }
     }
 
-    //문자 더하기 concat
+    /** 문자 더하기 concat */
     @Test
     public void concat() {
         queryFactory = new JPAQueryFactory(em);
@@ -462,5 +467,142 @@ public class QuerydslBasicTest {
             System.out.println("s = " + s);
         }
     }
+
+    /** 중급 문법 */
+
+    /** projection - select 대상 지정 */
+
+    /** 반환 타입이 1개일 때 */
+    @Test
+    public void simpleProjection() {
+        queryFactory = new JPAQueryFactory(em);
+
+
+        List<String> result = queryFactory
+                .select(member.username)
+                .from(member)
+                .fetch();
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    /** 반환타입이 여러개일 때는 튜플 */
+    @Test
+    public void tupleProjection() {
+        queryFactory = new JPAQueryFactory(em);
+
+        List<Tuple> result = queryFactory
+                .select(member.username, member.age)
+                .from(member)
+                .fetch();
+
+        for (Tuple tuple : result) {
+            String username = tuple.get(member.username);
+            Integer age = tuple.get(member.age);
+            System.out.println("username = " + username);
+            System.out.println("age = " + age);
+        }
+
+        /**
+         튜플은 왠만하면 repository 안에서만 사용하는 것이 좋다.
+         바깥 계층으로 내보내는 것은 DTO 사용
+         **/
+    }
+
+    /** jpql에서 dto 사용 */
+    @Test
+    public void findDtoByJPQL() {
+        List<MemberDto> result = em.createQuery("select " +
+                "new study.querydsl.dto.MemberDto(m.username, m.age) " +
+                "from Member m", MemberDto.class)
+                .getResultList();
+
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    /** querydsl에서 dto 사용 Setter */
+    @Test
+    public void findDtoBySetter() {
+        queryFactory = new JPAQueryFactory(em);
+
+        /** query dsl의 마법 **/
+        List<MemberDto> result = queryFactory
+                    .select(Projections.bean(MemberDto.class,
+                            member.username,
+                            member.age))
+                    .from(member)
+                    .fetch();
+        //주의 - DTO에 기본 생성자 필수
+
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    /** querydsl에서 dto 사용 Field */
+    @Test
+    public void findDtoByField() {
+        queryFactory = new JPAQueryFactory(em);
+
+        /** query dsl의 마법 **/
+        List<MemberDto> result = queryFactory
+                .select(Projections.fields(MemberDto.class,
+                        member.username,
+                        member.age))
+                .from(member)
+                .fetch();
+        //주의 - DTO에 기본 생성자 필수
+
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    /** querydsl에서 dto 사용 Constructor */
+    @Test
+    public void findDtoByConstructor() {
+        queryFactory = new JPAQueryFactory(em);
+
+        /** query dsl의 마법 **/
+        List<MemberDto> result = queryFactory
+                .select(Projections.constructor(MemberDto.class,
+                        member.username,
+                        member.age))
+                .from(member)
+                .fetch();
+        //주의 - DTO에 기본 생성자 필수
+
+        for (MemberDto memberDto : result) {
+            System.out.println("memberDto = " + memberDto);
+        }
+    }
+
+    /** querydsl에서 dto 사용 필드 값 일치시키기 **/
+    @Test
+    public void findUserDto() {
+        queryFactory = new JPAQueryFactory(em);
+
+        QMember memberSub = new QMember("memberSub");
+
+        /** query dsl의 마법 **/
+        List<UserDto> result = queryFactory
+                .select(Projections.fields(UserDto.class,
+                        member.username.as("name"), // as사용하여 field 값과 일치하게 변환
+                        ExpressionUtils.as(JPAExpressions
+                                .select(memberSub.age.max())
+                                .from(memberSub), "age")
+                ))
+                .from(member)
+                .fetch();
+        //주의 - DTO에 기본 생성자 필수
+
+        for (UserDto userDto : result) {
+            System.out.println("userDto = " + userDto);
+        }
+    }
+
 
 }
