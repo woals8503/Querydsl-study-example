@@ -270,7 +270,7 @@ public class QuerydslBasicTest {
     @Test
     public void join_on_filtering() {
         queryFactory = new JPAQueryFactory(em);
-        
+
         // inner join일 땐 where절 사용
         // 외부조인이 필요하면 on 사용 ( ex : left join )
         List<Tuple> result = queryFactory
@@ -303,7 +303,7 @@ public class QuerydslBasicTest {
                 .from(member)
                 .leftJoin(team).on(member.username.eq(team.name))
                 .fetch();
-        //team을 대상테이블로 지정하고 팀이름과 회원이름이 일치하는 것만 조회
+
         for (Tuple tuple : result) {
             System.out.println("tuple = " + tuple);
         }
